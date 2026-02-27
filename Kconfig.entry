@@ -1,15 +1,15 @@
 # Kconfig entry for lattepanda-sigma-ec-hwmon
 # Insert alphabetically into drivers/hwmon/Kconfig when submitting upstream.
 
-config SENSORS_LATTEPANDA_EC
+config SENSORS_LATTEPANDA_SIGMA_EC
 	tristate "LattePanda Sigma EC hardware monitoring"
 	depends on X86
 	depends on DMI
 	help
 	  If you say yes here you get support for the hardware monitoring
 	  features of the Embedded Controller on LattePanda Sigma
-	  single-board computers, including CPU fan speed (RPM),
-	  board and CPU temperatures, and fan PWM duty cycle.
+	  single-board computers, including CPU fan speed (RPM) and
+	  board and CPU temperatures.
 
 	  The driver reads the EC directly via ACPI EC I/O ports and
 	  uses DMI matching to ensure it only loads on supported hardware.

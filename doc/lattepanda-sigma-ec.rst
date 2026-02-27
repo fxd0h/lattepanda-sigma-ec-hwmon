@@ -50,8 +50,6 @@ Sysfs attributes
 ``temp2_input``         CPU proximity temperature in millidegrees
                         Celsius (EC register 0x70)
 ``temp2_label``         "CPU Temp"
-``pwm1``               Fan duty cycle, 0-255 (mapped from EC register
-                        0x93 which stores 0-100%)
 ======================= ===============================================
 
 Known limitations
@@ -60,7 +58,7 @@ Known limitations
 * The EC register map was reverse-engineered on a LattePanda Sigma with
   BIOS version 5.27. Different BIOS versions may use different register
   offsets.
-* Fan speed control (writing to ``pwm1``) is not supported. The fan is
-  always under EC automatic control.
+* Fan speed control is not supported. The fan is always under EC
+  automatic control.
 * The I/O ports ``0x62``/``0x66`` are shared with the ACPI EC subsystem
   and are not exclusively reserved by this driver.

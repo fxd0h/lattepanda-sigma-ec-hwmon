@@ -109,6 +109,53 @@ out:
 	return ret;
 }
 
+/*
+ * Read a 16-bit big-endian value from two consecutive EC registers.
+ * Both bytes are read within a single mutex hold to prevent tearing.
+ */
+static int ec_read_reg16(struct lattepanda_sigma_ec_data *data,
+			 u8 reg_hi, u8 reg_lo, u16 *val)
+{
+	int ret;
+	u8 hi, lo;
+
+	mutex_lock(&data->lock);
+
+	/* Read high byte */
+	ret = ec_wait_ibf_clear();
+	if (ret)
+		goto out;
+	outb(EC_CMD_READ, EC_CMD_PORT);
+	ret = ec_wait_ibf_clear();
+	if (ret)
+		goto out;
+	outb(reg_hi, EC_DATA_PORT);
+	ret = ec_wait_obf_set();
+	if (ret)
+		goto out;
+	hi = inb(EC_DATA_PORT);
+
+	/* Read low byte */
+	ret = ec_wait_ibf_clear();
+	if (ret)
+		goto out;
+	outb(EC_CMD_READ, EC_CMD_PORT);
+	ret = ec_wait_ibf_clear();
+	if (ret)
+		goto out;
+	outb(reg_lo, EC_DATA_PORT);
+	ret = ec_wait_obf_set();
+	if (ret)
+		goto out;
+	lo = inb(EC_DATA_PORT);
+
+	*val = (u16)(hi << 8) | lo;
+
+out:
+	mutex_unlock(&data->lock);
+	return ret;
+}
+
 /* ---- Hwmon string callbacks ---- */
 
 static int
@@ -145,10 +192,6 @@ lattepanda_sigma_ec_is_visible(const void *drvdata,
 		if (attr == hwmon_temp_input || attr == hwmon_temp_label)
 			return 0444;
 		break;
-	case hwmon_pwm:
-		if (attr == hwmon_pwm_input)
-			return 0444;
-		break;
 	default:
 		break;
 	}
@@ -161,20 +204,19 @@ lattepanda_sigma_ec_read(struct device *dev,
 			 u32 attr, int channel, long *val)
 {
 	struct lattepanda_sigma_ec_data *data = dev_get_drvdata(dev);
-	u8 hi, lo, v;
+	u16 rpm;
+	u8 v;
 	int ret;
 
 	switch (type) {
 	case hwmon_fan:
 		if (attr != hwmon_fan_input)
 			return -EOPNOTSUPP;
-		ret = ec_read_reg(data, EC_REG_FAN_RPM_HI, &hi);
+		ret = ec_read_reg16(data, EC_REG_FAN_RPM_HI,
+				    EC_REG_FAN_RPM_LO, &rpm);
 		if (ret)
 			return ret;
-		ret = ec_read_reg(data, EC_REG_FAN_RPM_LO, &lo);
-		if (ret)
-			return ret;
-		*val = (long)((hi << 8) | lo);
+		*val = rpm;
 		return 0;
 
 	case hwmon_temp:
@@ -189,16 +231,6 @@ lattepanda_sigma_ec_read(struct device *dev,
 		*val = (long)v * 1000;
 		return 0;
 
-	case hwmon_pwm:
-		if (attr != hwmon_pwm_input)
-			return -EOPNOTSUPP;
-		ret = ec_read_reg(data, EC_REG_FAN_DUTY, &v);
-		if (ret)
-			return ret;
-		/* EC duty is 0-100%, hwmon pwm is 0-255 */
-		*val = DIV_ROUND_CLOSEST((long)v * 255, 100);
-		return 0;
-
 	default:
 		return -EOPNOTSUPP;
 	}
@@ -211,7 +243,6 @@ static const struct hwmon_channel_info * const lattepanda_sigma_ec_info[] = {
 	HWMON_CHANNEL_INFO(temp,
 			   HWMON_T_INPUT | HWMON_T_LABEL,
 			   HWMON_T_INPUT | HWMON_T_LABEL),
-	HWMON_CHANNEL_INFO(pwm, HWMON_PWM_INPUT),
 	NULL
 };
 
@@ -262,7 +293,7 @@ static int lattepanda_sigma_ec_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(hwmon),
 				     "Failed to register hwmon device\n");
 
-	dev_info(dev, "EC hwmon registered (fan duty: %u%%)\n", test);
+	dev_dbg(dev, "EC hwmon registered (fan duty: %u%%)\n", test);
 	return 0;
 }
 
