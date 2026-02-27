@@ -1,4 +1,4 @@
-# Kconfig entry for lattepanda-ec-hwmon
+# Kconfig entry for lattepanda-sigma-ec-hwmon
 # Insert alphabetically into drivers/hwmon/Kconfig when submitting upstream.
 
 config SENSORS_LATTEPANDA_EC
@@ -15,4 +15,4 @@ config SENSORS_LATTEPANDA_EC
 	  uses DMI matching to ensure it only loads on supported hardware.
 
 	  This driver can also be built as a module. If so, the module
-	  will be called lattepanda-ec-hwmon.
+	  will be called lattepanda-sigma-ec-hwmon.

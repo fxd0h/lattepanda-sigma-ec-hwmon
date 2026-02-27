@@ -1,6 +1,6 @@
 KVER ?= $(shell uname -r)
 KDIR ?= /lib/modules/$(KVER)/build
-MODULE_NAME := lattepanda_ec_hwmon
+MODULE_NAME := lattepanda_sigma_ec_hwmon
 
 obj-m := $(MODULE_NAME).o
 

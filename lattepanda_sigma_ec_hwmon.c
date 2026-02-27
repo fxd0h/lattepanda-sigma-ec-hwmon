@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * lattepanda_ec_hwmon - Hardware monitoring driver for LattePanda Sigma
+ * lattepanda_sigma_ec_hwmon - Hardware monitoring driver for LattePanda Sigma
  *
  * Reads fan RPM, temperatures, and PWM duty cycle from the Embedded
  * Controller via ACPI EC I/O ports (0x62 data, 0x66 cmd/status).
@@ -24,7 +24,7 @@
 #include <linux/mutex.h>
 #include <linux/platform_device.h>
 
-#define DRIVER_NAME	"lattepanda_ec"
+#define DRIVER_NAME	"lattepanda_sigma_ec"
 
 /* EC I/O ports (standard ACPI EC interface) */
 #define EC_DATA_PORT	0x62
@@ -48,11 +48,11 @@
 #define EC_TIMEOUT_US		25000
 #define EC_POLL_INTERVAL_US	5
 
-struct lattepanda_ec_data {
+struct lattepanda_sigma_ec_data {
 	struct mutex lock;	/* serialize EC access */
 };
 
-static struct platform_device *lp_ec_pdev;
+static struct platform_device *lps_ec_pdev;
 
 /* ---- EC I/O ---- */
 
@@ -80,7 +80,7 @@ static int ec_wait_obf_set(void)
 	return -ETIMEDOUT;
 }
 
-static int ec_read_reg(struct lattepanda_ec_data *data, u8 reg, u8 *val)
+static int ec_read_reg(struct lattepanda_sigma_ec_data *data, u8 reg, u8 *val)
 {
 	int ret;
 
@@ -111,10 +111,11 @@ out:
 
 /* ---- Hwmon string callbacks ---- */
 
-static int lattepanda_ec_read_string(struct device *dev,
-				     enum hwmon_sensor_types type,
-				     u32 attr, int channel,
-				     const char **str)
+static int
+lattepanda_sigma_ec_read_string(struct device *dev,
+				enum hwmon_sensor_types type,
+				u32 attr, int channel,
+				const char **str)
 {
 	switch (type) {
 	case hwmon_fan:
@@ -130,9 +131,10 @@ static int lattepanda_ec_read_string(struct device *dev,
 
 /* ---- Hwmon callbacks ---- */
 
-static umode_t lattepanda_ec_is_visible(const void *drvdata,
-					enum hwmon_sensor_types type,
-					u32 attr, int channel)
+static umode_t
+lattepanda_sigma_ec_is_visible(const void *drvdata,
+			       enum hwmon_sensor_types type,
+			       u32 attr, int channel)
 {
 	switch (type) {
 	case hwmon_fan:
@@ -153,11 +155,12 @@ static umode_t lattepanda_ec_is_visible(const void *drvdata,
 	return 0;
 }
 
-static int lattepanda_ec_read(struct device *dev,
-			      enum hwmon_sensor_types type,
-			      u32 attr, int channel, long *val)
+static int
+lattepanda_sigma_ec_read(struct device *dev,
+			 enum hwmon_sensor_types type,
+			 u32 attr, int channel, long *val)
 {
-	struct lattepanda_ec_data *data = dev_get_drvdata(dev);
+	struct lattepanda_sigma_ec_data *data = dev_get_drvdata(dev);
 	u8 hi, lo, v;
 	int ret;
 
@@ -203,7 +206,7 @@ static int lattepanda_ec_read(struct device *dev,
 
 /* ---- Hwmon channel definitions ---- */
 
-static const struct hwmon_channel_info * const lattepanda_ec_info[] = {
+static const struct hwmon_channel_info * const lattepanda_sigma_ec_info[] = {
 	HWMON_CHANNEL_INFO(fan, HWMON_F_INPUT | HWMON_F_LABEL),
 	HWMON_CHANNEL_INFO(temp,
 			   HWMON_T_INPUT | HWMON_T_LABEL,
@@ -212,23 +215,23 @@ static const struct hwmon_channel_info * const lattepanda_ec_info[] = {
 	NULL
 };
 
-static const struct hwmon_ops lattepanda_ec_ops = {
-	.is_visible = lattepanda_ec_is_visible,
-	.read = lattepanda_ec_read,
-	.read_string = lattepanda_ec_read_string,
+static const struct hwmon_ops lattepanda_sigma_ec_ops = {
+	.is_visible = lattepanda_sigma_ec_is_visible,
+	.read = lattepanda_sigma_ec_read,
+	.read_string = lattepanda_sigma_ec_read_string,
 };
 
-static const struct hwmon_chip_info lattepanda_ec_chip_info = {
-	.ops = &lattepanda_ec_ops,
-	.info = lattepanda_ec_info,
+static const struct hwmon_chip_info lattepanda_sigma_ec_chip_info = {
+	.ops = &lattepanda_sigma_ec_ops,
+	.info = lattepanda_sigma_ec_info,
 };
 
 /* ---- Platform driver ---- */
 
-static int lattepanda_ec_probe(struct platform_device *pdev)
+static int lattepanda_sigma_ec_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
-	struct lattepanda_ec_data *data;
+	struct lattepanda_sigma_ec_data *data;
 	struct device *hwmon;
 	u8 test;
 	int ret;
@@ -253,7 +256,7 @@ static int lattepanda_ec_probe(struct platform_device *pdev)
 	 */
 
 	hwmon = devm_hwmon_device_register_with_info(dev, DRIVER_NAME, data,
-						     &lattepanda_ec_chip_info,
+						     &lattepanda_sigma_ec_chip_info,
 						     NULL);
 	if (IS_ERR(hwmon))
 		return dev_err_probe(dev, PTR_ERR(hwmon),
@@ -265,7 +268,7 @@ static int lattepanda_ec_probe(struct platform_device *pdev)
 
 /* ---- DMI matching ---- */
 
-static const struct dmi_system_id lattepanda_ec_dmi_table[] = {
+static const struct dmi_system_id lattepanda_sigma_ec_dmi_table[] = {
 	{
 		.ident = "LattePanda Sigma",
 		.matches = {
@@ -275,43 +278,43 @@ static const struct dmi_system_id lattepanda_ec_dmi_table[] = {
 	},
 	{ }	/* terminator */
 };
-MODULE_DEVICE_TABLE(dmi, lattepanda_ec_dmi_table);
+MODULE_DEVICE_TABLE(dmi, lattepanda_sigma_ec_dmi_table);
 
-static struct platform_driver lattepanda_ec_driver = {
-	.probe	= lattepanda_ec_probe,
+static struct platform_driver lattepanda_sigma_ec_driver = {
+	.probe	= lattepanda_sigma_ec_probe,
 	.driver	= {
 		.name = DRIVER_NAME,
 	},
 };
 
-static int __init lattepanda_ec_init(void)
+static int __init lattepanda_sigma_ec_init(void)
 {
 	int ret;
 
-	if (!dmi_check_system(lattepanda_ec_dmi_table))
+	if (!dmi_check_system(lattepanda_sigma_ec_dmi_table))
 		return -ENODEV;
 
-	lp_ec_pdev = platform_device_register_simple(DRIVER_NAME, -1, NULL, 0);
-	if (IS_ERR(lp_ec_pdev))
-		return PTR_ERR(lp_ec_pdev);
+	lps_ec_pdev = platform_device_register_simple(DRIVER_NAME, -1, NULL, 0);
+	if (IS_ERR(lps_ec_pdev))
+		return PTR_ERR(lps_ec_pdev);
 
-	ret = platform_driver_register(&lattepanda_ec_driver);
+	ret = platform_driver_register(&lattepanda_sigma_ec_driver);
 	if (ret) {
-		platform_device_unregister(lp_ec_pdev);
+		platform_device_unregister(lps_ec_pdev);
 		return ret;
 	}
 
 	return 0;
 }
 
-static void __exit lattepanda_ec_exit(void)
+static void __exit lattepanda_sigma_ec_exit(void)
 {
-	platform_driver_unregister(&lattepanda_ec_driver);
-	platform_device_unregister(lp_ec_pdev);
+	platform_driver_unregister(&lattepanda_sigma_ec_driver);
+	platform_device_unregister(lps_ec_pdev);
 }
 
-module_init(lattepanda_ec_init);
-module_exit(lattepanda_ec_exit);
+module_init(lattepanda_sigma_ec_init);
+module_exit(lattepanda_sigma_ec_exit);
 
 MODULE_AUTHOR("Mariano Abad <weimaraner@gmail.com>");
 MODULE_DESCRIPTION("Hardware monitoring driver for LattePanda Sigma EC");

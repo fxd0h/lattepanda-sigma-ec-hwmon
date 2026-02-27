@@ -1,5 +1,7 @@
-Kernel driver lattepanda-ec
-===========================
+.. SPDX-License-Identifier: GPL-2.0-or-later
+
+Kernel driver lattepanda-sigma-ec
+==================================
 
 Supported systems:
 
@@ -18,17 +20,19 @@ Description
 
 This driver provides hardware monitoring for the LattePanda Sigma
 single-board computer. The board's Embedded Controller manages a CPU
-cooling fan but does not expose fan speed through standard ACPI hwmon
-interfaces (no ``PNP0C09`` EC device, no ``fan*_input`` in hwmon).
+cooling fan but does not expose sensor data through standard ACPI
+interfaces.
 
-This driver reads the EC registers directly via the standard ACPI EC
-I/O ports (``0x62`` data, ``0x66`` command/status) using the EC read
-command ``0x80``.
+The BIOS declares the ACPI Embedded Controller (``PNP0C09``) with
+``_STA`` returning 0 (not present), preventing the kernel's ACPI EC
+subsystem from initializing. However, the EC hardware is fully
+functional on the standard ACPI EC I/O ports (``0x62`` data, ``0x66``
+command/status). This driver uses direct port I/O with EC read command
+``0x80`` to access sensor registers.
 
 The EC register map was discovered empirically by dumping all 256
-registers and identifying those that change in real-time, then
-validating by physically stopping the fan and observing the RPM drop
-to zero.
+registers, identifying those that change in real-time, then validating
+by physically stopping the fan and observing the RPM drop to zero.
 
 The driver uses DMI matching and will only load on LattePanda Sigma
 hardware.
@@ -48,8 +52,6 @@ Sysfs attributes
 ``temp2_label``         "CPU Temp"
 ``pwm1``               Fan duty cycle, 0-255 (mapped from EC register
                         0x93 which stores 0-100%)
-``pwm1_enable``         Fan control mode (read-only, always returns 2
-                        for automatic EC control)
 ======================= ===============================================
 
 Known limitations
@@ -60,6 +62,5 @@ Known limitations
   offsets.
 * Fan speed control (writing to ``pwm1``) is not supported. The fan is
   always under EC automatic control.
-* The I/O ports ``0x62``/``0x66`` may be shared with other ACPI EC users.
-  The driver uses ``devm_request_region()`` but continues if the ports
-  are already reserved.
+* The I/O ports ``0x62``/``0x66`` are shared with the ACPI EC subsystem
+  and are not exclusively reserved by this driver.

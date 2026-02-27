@@ -1,4 +1,4 @@
-# lattepanda-ec-hwmon
+# lattepanda-sigma-ec-hwmon
 
 Linux hardware monitoring (hwmon) kernel driver for the **LattePanda Sigma** single-board computer.
 
@@ -22,8 +22,8 @@ The driver uses **DMI matching** and only loads on verified LattePanda Sigma har
 ## Example Output
 
 ```
-$ sensors lattepanda_ec-isa-0000
-lattepanda_ec-isa-0000
+$ sensors lattepanda_sigma_ec-isa-0000
+lattepanda_sigma_ec-isa-0000
 Adapter: ISA adapter
 CPU Fan:     2900 RPM
 Board Temp:   +45.0°C
@@ -37,13 +37,13 @@ CPU Temp:     +69.0°C
 make
 
 # Load
-sudo insmod lattepanda_ec_hwmon.ko
+sudo insmod lattepanda_sigma_ec_hwmon.ko
 
 # Verify
 sensors
 
 # Unload
-sudo rmmod lattepanda_ec_hwmon
+sudo rmmod lattepanda_sigma_ec_hwmon
 ```
 
 ## Installation
@@ -53,16 +53,16 @@ sudo rmmod lattepanda_ec_hwmon
 ```bash
 sudo make install
 sudo depmod -a
-echo "lattepanda_ec_hwmon" | sudo tee /etc/modules-load.d/lattepanda-ec-hwmon.conf
+echo "lattepanda_sigma_ec_hwmon" | sudo tee /etc/modules-load.d/lattepanda-sigma-ec-hwmon.conf
 ```
 
 ### DKMS (auto-rebuild on kernel updates)
 
 ```bash
-sudo cp -r . /usr/src/lattepanda-ec-hwmon-1.0.0
-sudo dkms add lattepanda-ec-hwmon/1.0.0
-sudo dkms build lattepanda-ec-hwmon/1.0.0
-sudo dkms install lattepanda-ec-hwmon/1.0.0
+sudo cp -r . /usr/src/lattepanda-sigma-ec-hwmon-1.0.0
+sudo dkms add lattepanda-sigma-ec-hwmon/1.0.0
+sudo dkms build lattepanda-sigma-ec-hwmon/1.0.0
+sudo dkms install lattepanda-sigma-ec-hwmon/1.0.0
 ```
 
 ## Upstream Submission
@@ -71,8 +71,8 @@ This driver is structured to be submittable to the Linux kernel hwmon subsystem.
 
 | File | Purpose |
 |------|---------|
-| `lattepanda_ec_hwmon.c` | Driver source (passes `checkpatch.pl --strict`) |
-| `doc/lattepanda-ec.rst` | Kernel `Documentation/hwmon/` entry |
+| `lattepanda_sigma_ec_hwmon.c` | Driver source (passes `checkpatch.pl --strict`) |
+| `doc/lattepanda-sigma-ec.rst` | Kernel `Documentation/hwmon/` entry |
 | `Kconfig.entry` | Fragment for `drivers/hwmon/Kconfig` |
 | `MAINTAINERS.entry` | Fragment for `MAINTAINERS` |
 
@@ -86,7 +86,7 @@ The EC register map was discovered empirically by:
 2. Taking multiple snapshots to identify registers that change in real-time
 3. Physically stopping the fan and confirming RPM drop to 0
 
-See [`doc/lattepanda-ec.rst`](doc/lattepanda-ec.rst) for full details.
+See [`doc/lattepanda-sigma-ec.rst`](doc/lattepanda-sigma-ec.rst) for full details.
 
 ## Hardware
 
