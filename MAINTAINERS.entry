@@ -1,7 +1,7 @@
 # MAINTAINERS entry for lattepanda-sigma-ec-hwmon
 # Append to the MAINTAINERS file when submitting upstream.
 
-LATTEPANDA EC HWMON DRIVER
+LATTEPANDA SIGMA EC HWMON DRIVER
 M:	Mariano Abad <weimaraner@gmail.com>
 S:	Maintained
 F:	Documentation/hwmon/lattepanda-sigma-ec.rst

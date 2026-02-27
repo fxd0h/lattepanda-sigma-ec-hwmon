@@ -1,17 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * lattepanda_sigma_ec_hwmon - Hardware monitoring driver for LattePanda Sigma
+ * Hardware monitoring driver for LattePanda Sigma EC.
  *
- * Reads fan RPM, temperatures, and PWM duty cycle from the Embedded
- * Controller via ACPI EC I/O ports (0x62 data, 0x66 cmd/status).
- *
- * EC Register Map (LattePanda Sigma, discovered empirically):
- *   0x2E:0x2F  - Fan RPM (16-bit big-endian)
- *   0x60       - Temperature sensor 1 (°C, board/ambient)
- *   0x70       - Temperature sensor 2 (°C, CPU proximity)
- *   0x93       - Fan duty cycle (0-100%)
- *
- * Only loads on verified LattePanda Sigma hardware via DMI matching.
+ * Reads fan RPM and temperatures from the Embedded Controller via
+ * ACPI EC I/O ports (0x62 data, 0x66 cmd/status). The BIOS reports
+ * the ACPI EC as disabled (_STA=0), so direct port I/O is used.
  *
  * Copyright (c) 2026 Mariano Abad <weimaraner@gmail.com>
  */
@@ -53,8 +46,6 @@ struct lattepanda_sigma_ec_data {
 };
 
 static struct platform_device *lps_ec_pdev;
-
-/* ---- EC I/O ---- */
 
 static int ec_wait_ibf_clear(void)
 {
@@ -149,14 +140,12 @@ static int ec_read_reg16(struct lattepanda_sigma_ec_data *data,
 		goto out;
 	lo = inb(EC_DATA_PORT);
 
-	*val = (u16)(hi << 8) | lo;
+	*val = ((u16)hi << 8) | lo;
 
 out:
 	mutex_unlock(&data->lock);
 	return ret;
 }
-
-/* ---- Hwmon string callbacks ---- */
 
 static int
 lattepanda_sigma_ec_read_string(struct device *dev,
@@ -175,8 +164,6 @@ lattepanda_sigma_ec_read_string(struct device *dev,
 		return -EOPNOTSUPP;
 	}
 }
-
-/* ---- Hwmon callbacks ---- */
 
 static umode_t
 lattepanda_sigma_ec_is_visible(const void *drvdata,
@@ -236,8 +223,6 @@ lattepanda_sigma_ec_read(struct device *dev,
 	}
 }
 
-/* ---- Hwmon channel definitions ---- */
-
 static const struct hwmon_channel_info * const lattepanda_sigma_ec_info[] = {
 	HWMON_CHANNEL_INFO(fan, HWMON_F_INPUT | HWMON_F_LABEL),
 	HWMON_CHANNEL_INFO(temp,
@@ -256,8 +241,6 @@ static const struct hwmon_chip_info lattepanda_sigma_ec_chip_info = {
 	.ops = &lattepanda_sigma_ec_ops,
 	.info = lattepanda_sigma_ec_info,
 };
-
-/* ---- Platform driver ---- */
 
 static int lattepanda_sigma_ec_probe(struct platform_device *pdev)
 {
@@ -281,11 +264,6 @@ static int lattepanda_sigma_ec_probe(struct platform_device *pdev)
 				     "EC not responding on ports 0x%x/0x%x\n",
 				     EC_DATA_PORT, EC_CMD_PORT);
 
-	/*
-	 * EC I/O ports 0x62/0x66 are shared with the ACPI EC subsystem.
-	 * Do not request exclusive access via devm_request_region().
-	 */
-
 	hwmon = devm_hwmon_device_register_with_info(dev, DRIVER_NAME, data,
 						     &lattepanda_sigma_ec_chip_info,
 						     NULL);
@@ -296,8 +274,6 @@ static int lattepanda_sigma_ec_probe(struct platform_device *pdev)
 	dev_dbg(dev, "EC hwmon registered (fan duty: %u%%)\n", test);
 	return 0;
 }
-
-/* ---- DMI matching ---- */
 
 static const struct dmi_system_id lattepanda_sigma_ec_dmi_table[] = {
 	{
