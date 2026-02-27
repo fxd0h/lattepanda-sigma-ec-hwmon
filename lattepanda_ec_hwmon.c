@@ -144,7 +144,7 @@ static umode_t lattepanda_ec_is_visible(const void *drvdata,
 			return 0444;
 		break;
 	case hwmon_pwm:
-		if (attr == hwmon_pwm_input || attr == hwmon_pwm_enable)
+		if (attr == hwmon_pwm_input)
 			return 0444;
 		break;
 	default:
@@ -187,21 +187,14 @@ static int lattepanda_ec_read(struct device *dev,
 		return 0;
 
 	case hwmon_pwm:
-		switch (attr) {
-		case hwmon_pwm_input:
-			ret = ec_read_reg(data, EC_REG_FAN_DUTY, &v);
-			if (ret)
-				return ret;
-			/* EC duty is 0-100%, hwmon pwm is 0-255 */
-			*val = DIV_ROUND_CLOSEST((long)v * 255, 100);
-			return 0;
-		case hwmon_pwm_enable:
-			/* Fan is always under EC automatic control */
-			*val = 2;
-			return 0;
-		default:
+		if (attr != hwmon_pwm_input)
 			return -EOPNOTSUPP;
-		}
+		ret = ec_read_reg(data, EC_REG_FAN_DUTY, &v);
+		if (ret)
+			return ret;
+		/* EC duty is 0-100%, hwmon pwm is 0-255 */
+		*val = DIV_ROUND_CLOSEST((long)v * 255, 100);
+		return 0;
 
 	default:
 		return -EOPNOTSUPP;
@@ -215,7 +208,7 @@ static const struct hwmon_channel_info * const lattepanda_ec_info[] = {
 	HWMON_CHANNEL_INFO(temp,
 			   HWMON_T_INPUT | HWMON_T_LABEL,
 			   HWMON_T_INPUT | HWMON_T_LABEL),
-	HWMON_CHANNEL_INFO(pwm, HWMON_PWM_INPUT | HWMON_PWM_ENABLE),
+	HWMON_CHANNEL_INFO(pwm, HWMON_PWM_INPUT),
 	NULL
 };
 
@@ -249,25 +242,22 @@ static int lattepanda_ec_probe(struct platform_device *pdev)
 
 	/* Sanity check: verify EC is responsive */
 	ret = ec_read_reg(data, EC_REG_FAN_DUTY, &test);
-	if (ret) {
-		dev_err(dev, "EC not responding on ports 0x%x/0x%x\n",
-			EC_DATA_PORT, EC_CMD_PORT);
-		return ret;
-	}
+	if (ret)
+		return dev_err_probe(dev, ret,
+				     "EC not responding on ports 0x%x/0x%x\n",
+				     EC_DATA_PORT, EC_CMD_PORT);
 
-	if (!devm_request_region(dev, EC_DATA_PORT, 1, DRIVER_NAME))
-		dev_dbg(dev, "EC data port 0x%x already reserved\n",
-			EC_DATA_PORT);
-
-	if (!devm_request_region(dev, EC_CMD_PORT, 1, DRIVER_NAME))
-		dev_dbg(dev, "EC cmd port 0x%x already reserved\n",
-			EC_CMD_PORT);
+	/*
+	 * EC I/O ports 0x62/0x66 are shared with the ACPI EC subsystem.
+	 * Do not request exclusive access via devm_request_region().
+	 */
 
 	hwmon = devm_hwmon_device_register_with_info(dev, DRIVER_NAME, data,
 						     &lattepanda_ec_chip_info,
 						     NULL);
 	if (IS_ERR(hwmon))
-		return PTR_ERR(hwmon);
+		return dev_err_probe(dev, PTR_ERR(hwmon),
+				     "Failed to register hwmon device\n");
 
 	dev_info(dev, "EC hwmon registered (fan duty: %u%%)\n", test);
 	return 0;
