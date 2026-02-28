@@ -15,9 +15,9 @@ The driver uses **DMI matching** and only loads on verified LattePanda Sigma har
 | `fan1_input` | RPM | `0x2E:0x2F` | CPU fan speed (16-bit big-endian) |
 | `fan1_label` | string | — | "CPU Fan" |
 | `temp1_input` | m°C | `0x60` | Board/ambient temperature |
+| `temp1_label` | string | — | "Board Temp" |
 | `temp2_input` | m°C | `0x70` | CPU proximity temperature |
-| `pwm1` | 0-255 | `0x93` | Fan duty cycle (mapped from 0-100%) |
-| `pwm1_enable` | int | — | Always 2 (EC automatic control) |
+| `temp2_label` | string | — | "CPU Temp" |
 
 ## Example Output
 

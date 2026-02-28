@@ -5,4 +5,4 @@ LATTEPANDA SIGMA EC HWMON DRIVER
 M:	Mariano Abad <weimaraner@gmail.com>
 S:	Maintained
 F:	Documentation/hwmon/lattepanda-sigma-ec.rst
-F:	drivers/hwmon/lattepanda-sigma-ec-hwmon.c
+F:	drivers/hwmon/lattepanda_sigma_ec_hwmon.c
