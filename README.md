@@ -2,9 +2,15 @@
 
 Linux hardware monitoring (hwmon) kernel driver for the **LattePanda Sigma** single-board computer.
 
+**Maintainer**: Mariano Abad <weimaraner@gmail.com>
+
 ## Overview
 
-The LattePanda Sigma's BIOS/ACPI does not expose fan speed through standard Linux interfaces. This driver reads the Embedded Controller (EC) registers directly via the ACPI EC I/O ports and exposes them through the standard Linux hwmon sysfs interface, making them visible to `lm-sensors` and any tool that reads hwmon data.
+The LattePanda Sigma uses an ITE IT8613E Embedded Controller (EC) running 8051 firmware to manage fan speed, temperatures and power. However, the BIOS declares the ACPI EC as disabled (`_STA=0`), so Linux never sees these sensors through standard interfaces — `lm-sensors` shows nothing for the fan or board temperatures out of the box.
+
+This driver bypasses that limitation by reading the EC registers directly via ACPI EC I/O ports (`0x62`/`0x66`) and exposes fan RPM, board temperature, and CPU temperature through the standard Linux hwmon sysfs interface, making them visible to `lm-sensors`, Grafana, `conky`, and any monitoring tool.
+
+The EC register map was reverse-engineered from the firmware binary. Fan speed is controlled autonomously by the EC and is not writable from the host — see [EC Register Discovery](#ec-register-discovery) for details.
 
 The driver uses **DMI matching** and only loads on verified LattePanda Sigma hardware — it is safe to install on any machine.
 
@@ -94,6 +100,14 @@ See [`doc/lattepanda-sigma-ec.rst`](doc/lattepanda-sigma-ec.rst) for full detail
 - **CPU**: Intel 13th Gen i5-1340P
 - **BIOS**: 5.27
 - **EC interface**: ACPI EC ports `0x62` (data) / `0x66` (cmd/status)
+
+## Author
+
+- **Mariano Abad** — [weimaraner@gmail.com](mailto:weimaraner@gmail.com)
+
+## Contributing
+
+Bug reports, testing on other LattePanda models, and patches are welcome. If you have a LattePanda with a different BIOS version, please open an issue with your `dmidecode` output and EC register dump.
 
 ## License
 
