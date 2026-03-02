@@ -2,9 +2,24 @@
 /*
  * Hardware monitoring driver for LattePanda Sigma EC.
  *
- * Reads fan RPM and temperatures from the Embedded Controller via
- * ACPI EC I/O ports (0x62 data, 0x66 cmd/status). The BIOS reports
- * the ACPI EC as disabled (_STA=0), so direct port I/O is used.
+ * The LattePanda Sigma is an x86 SBC made by DFRobot with an ITE IT8613E
+ * Embedded Controller that manages a CPU fan and thermal sensors.
+ *
+ * The BIOS declares the ACPI Embedded Controller (PNP0C09) with _STA
+ * returning 0 and provides only stub ECRD/ECWT methods that return Zero
+ * for all registers. Since the kernel's ACPI EC subsystem never initializes,
+ * ec_read() is not available and direct port I/O to the standard ACPI EC
+ * ports (0x62/0x66) is used instead.
+ *
+ * Because ACPI never initializes the EC, there is no concurrent firmware
+ * access to these ports, and no ACPI Global Lock or namespace mutex is
+ * required. The hwmon with_info API serializes all sysfs callbacks,
+ * so no additional driver-level locking is needed.
+ *
+ * The EC register map was discovered by dumping all 256 registers,
+ * identifying those that change in real-time, and validating by physically
+ * stopping the fan and observing the RPM register drop to zero. The map
+ * has been verified on BIOS version 5.27; other versions may differ.
  *
  * Copyright (c) 2026 Mariano Abad <weimaraner@gmail.com>
  */
@@ -14,7 +29,6 @@
 #include <linux/hwmon.h>
 #include <linux/io.h>
 #include <linux/module.h>
-#include <linux/mutex.h>
 #include <linux/platform_device.h>
 
 #define DRIVER_NAME	"lattepanda_sigma_ec"
@@ -30,128 +44,106 @@
 #define EC_STATUS_OBF	0x01	/* Output Buffer Full */
 #define EC_STATUS_IBF	0x02	/* Input Buffer Full */
 
-/* EC register offsets for LattePanda Sigma */
+/* EC register offsets for LattePanda Sigma (BIOS 5.27) */
 #define EC_REG_FAN_RPM_HI	0x2E
 #define EC_REG_FAN_RPM_LO	0x2F
-#define EC_REG_TEMP1		0x60
-#define EC_REG_TEMP2		0x70
+#define EC_REG_TEMP_BOARD	0x60
+#define EC_REG_TEMP_CPU		0x70
 #define EC_REG_FAN_DUTY		0x93
 
-/* Timeout for EC operations (in microseconds) */
+/*
+ * EC polling uses udelay() because the EC typically responds within a
+ * few microseconds. The kernel's own ACPI EC driver (drivers/acpi/ec.c)
+ * likewise uses udelay() for busy-polling with a per-poll delay of 550us.
+ *
+ * usleep_range() was tested but caused EC protocol failures: the EC
+ * clears its status flags within microseconds, and sleeping for 50-100us
+ * between polls allowed the flags to transition past the expected state.
+ *
+ * The worst-case total busy-wait of 25ms covers EC recovery after errors.
+ * In practice the EC responds within 10us so the loop exits immediately.
+ */
 #define EC_TIMEOUT_US		25000
-#define EC_POLL_INTERVAL_US	5
+#define EC_POLL_US		1
 
-struct lattepanda_sigma_ec_data {
-	struct mutex lock;	/* serialize EC access */
-};
+static bool force;
+module_param(force, bool, 0444);
+MODULE_PARM_DESC(force,
+		 "Force loading on untested BIOS versions (default: false)");
 
 static struct platform_device *lps_ec_pdev;
 
 static int ec_wait_ibf_clear(void)
 {
-	int timeout = EC_TIMEOUT_US / EC_POLL_INTERVAL_US;
+	int i;
 
-	while (timeout--) {
+	for (i = 0; i < EC_TIMEOUT_US; i++) {
 		if (!(inb(EC_CMD_PORT) & EC_STATUS_IBF))
 			return 0;
-		udelay(EC_POLL_INTERVAL_US);
+		udelay(EC_POLL_US);
 	}
 	return -ETIMEDOUT;
 }
 
 static int ec_wait_obf_set(void)
 {
-	int timeout = EC_TIMEOUT_US / EC_POLL_INTERVAL_US;
+	int i;
 
-	while (timeout--) {
+	for (i = 0; i < EC_TIMEOUT_US; i++) {
 		if (inb(EC_CMD_PORT) & EC_STATUS_OBF)
 			return 0;
-		udelay(EC_POLL_INTERVAL_US);
+		udelay(EC_POLL_US);
 	}
 	return -ETIMEDOUT;
 }
 
-static int ec_read_reg(struct lattepanda_sigma_ec_data *data, u8 reg, u8 *val)
+static int ec_read_reg(u8 reg, u8 *val)
 {
 	int ret;
 
-	mutex_lock(&data->lock);
-
 	ret = ec_wait_ibf_clear();
 	if (ret)
-		goto out;
+		return ret;
 
 	outb(EC_CMD_READ, EC_CMD_PORT);
 
 	ret = ec_wait_ibf_clear();
 	if (ret)
-		goto out;
+		return ret;
 
 	outb(reg, EC_DATA_PORT);
 
 	ret = ec_wait_obf_set();
 	if (ret)
-		goto out;
+		return ret;
 
 	*val = inb(EC_DATA_PORT);
-
-out:
-	mutex_unlock(&data->lock);
-	return ret;
+	return 0;
 }
 
-/*
- * Read a 16-bit big-endian value from two consecutive EC registers.
- * Both bytes are read within a single mutex hold to prevent tearing.
- */
-static int ec_read_reg16(struct lattepanda_sigma_ec_data *data,
-			 u8 reg_hi, u8 reg_lo, u16 *val)
+/* Read a 16-bit big-endian value from two consecutive EC registers. */
+static int ec_read_reg16(u8 reg_hi, u8 reg_lo, u16 *val)
 {
 	int ret;
 	u8 hi, lo;
 
-	mutex_lock(&data->lock);
+	ret = ec_read_reg(reg_hi, &hi);
+	if (ret)
+		return ret;
 
-	/* Read high byte */
-	ret = ec_wait_ibf_clear();
+	ret = ec_read_reg(reg_lo, &lo);
 	if (ret)
-		goto out;
-	outb(EC_CMD_READ, EC_CMD_PORT);
-	ret = ec_wait_ibf_clear();
-	if (ret)
-		goto out;
-	outb(reg_hi, EC_DATA_PORT);
-	ret = ec_wait_obf_set();
-	if (ret)
-		goto out;
-	hi = inb(EC_DATA_PORT);
-
-	/* Read low byte */
-	ret = ec_wait_ibf_clear();
-	if (ret)
-		goto out;
-	outb(EC_CMD_READ, EC_CMD_PORT);
-	ret = ec_wait_ibf_clear();
-	if (ret)
-		goto out;
-	outb(reg_lo, EC_DATA_PORT);
-	ret = ec_wait_obf_set();
-	if (ret)
-		goto out;
-	lo = inb(EC_DATA_PORT);
+		return ret;
 
 	*val = ((u16)hi << 8) | lo;
-
-out:
-	mutex_unlock(&data->lock);
-	return ret;
+	return 0;
 }
 
 static int
-lattepanda_sigma_ec_read_string(struct device *dev,
-				enum hwmon_sensor_types type,
-				u32 attr, int channel,
-				const char **str)
+lps_ec_read_string(struct device *dev,
+		   enum hwmon_sensor_types type,
+		   u32 attr, int channel,
+		   const char **str)
 {
 	switch (type) {
 	case hwmon_fan:
@@ -166,9 +158,9 @@ lattepanda_sigma_ec_read_string(struct device *dev,
 }
 
 static umode_t
-lattepanda_sigma_ec_is_visible(const void *drvdata,
-			       enum hwmon_sensor_types type,
-			       u32 attr, int channel)
+lps_ec_is_visible(const void *drvdata,
+		  enum hwmon_sensor_types type,
+		  u32 attr, int channel)
 {
 	switch (type) {
 	case hwmon_fan:
@@ -186,11 +178,10 @@ lattepanda_sigma_ec_is_visible(const void *drvdata,
 }
 
 static int
-lattepanda_sigma_ec_read(struct device *dev,
-			 enum hwmon_sensor_types type,
-			 u32 attr, int channel, long *val)
+lps_ec_read(struct device *dev,
+	    enum hwmon_sensor_types type,
+	    u32 attr, int channel, long *val)
 {
-	struct lattepanda_sigma_ec_data *data = dev_get_drvdata(dev);
 	u16 rpm;
 	u8 v;
 	int ret;
@@ -199,7 +190,7 @@ lattepanda_sigma_ec_read(struct device *dev,
 	case hwmon_fan:
 		if (attr != hwmon_fan_input)
 			return -EOPNOTSUPP;
-		ret = ec_read_reg16(data, EC_REG_FAN_RPM_HI,
+		ret = ec_read_reg16(EC_REG_FAN_RPM_HI,
 				    EC_REG_FAN_RPM_LO, &rpm);
 		if (ret)
 			return ret;
@@ -209,13 +200,13 @@ lattepanda_sigma_ec_read(struct device *dev,
 	case hwmon_temp:
 		if (attr != hwmon_temp_input)
 			return -EOPNOTSUPP;
-		ret = ec_read_reg(data,
-				  channel == 0 ? EC_REG_TEMP1 : EC_REG_TEMP2,
+		ret = ec_read_reg(channel == 0 ? EC_REG_TEMP_BOARD
+					       : EC_REG_TEMP_CPU,
 				  &v);
 		if (ret)
 			return ret;
-		/* hwmon temps are in millidegrees Celsius */
-		*val = (long)v * 1000;
+		/* EC reports unsigned 8-bit temperature in degrees Celsius */
+		*val = (unsigned long)v * 1000;
 		return 0;
 
 	default:
@@ -223,7 +214,7 @@ lattepanda_sigma_ec_read(struct device *dev,
 	}
 }
 
-static const struct hwmon_channel_info * const lattepanda_sigma_ec_info[] = {
+static const struct hwmon_channel_info * const lps_ec_info[] = {
 	HWMON_CHANNEL_INFO(fan, HWMON_F_INPUT | HWMON_F_LABEL),
 	HWMON_CHANNEL_INFO(temp,
 			   HWMON_T_INPUT | HWMON_T_LABEL,
@@ -231,51 +222,57 @@ static const struct hwmon_channel_info * const lattepanda_sigma_ec_info[] = {
 	NULL
 };
 
-static const struct hwmon_ops lattepanda_sigma_ec_ops = {
-	.is_visible = lattepanda_sigma_ec_is_visible,
-	.read = lattepanda_sigma_ec_read,
-	.read_string = lattepanda_sigma_ec_read_string,
+static const struct hwmon_ops lps_ec_ops = {
+	.is_visible = lps_ec_is_visible,
+	.read = lps_ec_read,
+	.read_string = lps_ec_read_string,
 };
 
-static const struct hwmon_chip_info lattepanda_sigma_ec_chip_info = {
-	.ops = &lattepanda_sigma_ec_ops,
-	.info = lattepanda_sigma_ec_info,
+static const struct hwmon_chip_info lps_ec_chip_info = {
+	.ops = &lps_ec_ops,
+	.info = lps_ec_info,
 };
 
-static int lattepanda_sigma_ec_probe(struct platform_device *pdev)
+static int lps_ec_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
-	struct lattepanda_sigma_ec_data *data;
 	struct device *hwmon;
 	u8 test;
 	int ret;
 
-	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
-	if (!data)
-		return -ENOMEM;
-
-	mutex_init(&data->lock);
-	platform_set_drvdata(pdev, data);
-
 	/* Sanity check: verify EC is responsive */
-	ret = ec_read_reg(data, EC_REG_FAN_DUTY, &test);
+	ret = ec_read_reg(EC_REG_FAN_DUTY, &test);
 	if (ret)
 		return dev_err_probe(dev, ret,
 				     "EC not responding on ports 0x%x/0x%x\n",
 				     EC_DATA_PORT, EC_CMD_PORT);
 
-	hwmon = devm_hwmon_device_register_with_info(dev, DRIVER_NAME, data,
-						     &lattepanda_sigma_ec_chip_info,
-						     NULL);
+	hwmon = devm_hwmon_device_register_with_info(dev, DRIVER_NAME, NULL,
+						     &lps_ec_chip_info, NULL);
 	if (IS_ERR(hwmon))
 		return dev_err_probe(dev, PTR_ERR(hwmon),
 				     "Failed to register hwmon device\n");
 
-	dev_dbg(dev, "EC hwmon registered (fan duty: %u%%)\n", test);
+	dev_info(dev, "EC hwmon registered (fan duty: %u%%)\n", test);
 	return 0;
 }
 
-static const struct dmi_system_id lattepanda_sigma_ec_dmi_table[] = {
+/* DMI table with strict BIOS version match (override with force=1) */
+static const struct dmi_system_id lps_ec_dmi_table[] = {
+	{
+		.ident = "LattePanda Sigma",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LattePanda"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "LattePanda Sigma"),
+			DMI_MATCH(DMI_BIOS_VERSION, "5.27"),
+		},
+	},
+	{ }	/* terminator */
+};
+MODULE_DEVICE_TABLE(dmi, lps_ec_dmi_table);
+
+/* Loose table (vendor + product only) for use with force=1 */
+static const struct dmi_system_id lps_ec_dmi_table_force[] = {
 	{
 		.ident = "LattePanda Sigma",
 		.matches = {
@@ -285,43 +282,47 @@ static const struct dmi_system_id lattepanda_sigma_ec_dmi_table[] = {
 	},
 	{ }	/* terminator */
 };
-MODULE_DEVICE_TABLE(dmi, lattepanda_sigma_ec_dmi_table);
 
-static struct platform_driver lattepanda_sigma_ec_driver = {
-	.probe	= lattepanda_sigma_ec_probe,
+static struct platform_driver lps_ec_driver = {
+	.probe	= lps_ec_probe,
 	.driver	= {
 		.name = DRIVER_NAME,
 	},
 };
 
-static int __init lattepanda_sigma_ec_init(void)
+static int __init lps_ec_init(void)
 {
 	int ret;
 
-	if (!dmi_check_system(lattepanda_sigma_ec_dmi_table))
-		return -ENODEV;
+	if (!dmi_check_system(lps_ec_dmi_table)) {
+		if (!force || !dmi_check_system(lps_ec_dmi_table_force))
+			return -ENODEV;
+		pr_warn("%s: BIOS version not verified, loading due to force=1\n",
+			DRIVER_NAME);
+	}
 
-	lps_ec_pdev = platform_device_register_simple(DRIVER_NAME, -1, NULL, 0);
-	if (IS_ERR(lps_ec_pdev))
-		return PTR_ERR(lps_ec_pdev);
-
-	ret = platform_driver_register(&lattepanda_sigma_ec_driver);
-	if (ret) {
-		platform_device_unregister(lps_ec_pdev);
+	ret = platform_driver_register(&lps_ec_driver);
+	if (ret)
 		return ret;
+
+	lps_ec_pdev = platform_device_register_simple(DRIVER_NAME, -1,
+						       NULL, 0);
+	if (IS_ERR(lps_ec_pdev)) {
+		platform_driver_unregister(&lps_ec_driver);
+		return PTR_ERR(lps_ec_pdev);
 	}
 
 	return 0;
 }
 
-static void __exit lattepanda_sigma_ec_exit(void)
+static void __exit lps_ec_exit(void)
 {
-	platform_driver_unregister(&lattepanda_sigma_ec_driver);
 	platform_device_unregister(lps_ec_pdev);
+	platform_driver_unregister(&lps_ec_driver);
 }
 
-module_init(lattepanda_sigma_ec_init);
-module_exit(lattepanda_sigma_ec_exit);
+module_init(lps_ec_init);
+module_exit(lps_ec_exit);
 
 MODULE_AUTHOR("Mariano Abad <weimaraner@gmail.com>");
 MODULE_DESCRIPTION("Hardware monitoring driver for LattePanda Sigma EC");
