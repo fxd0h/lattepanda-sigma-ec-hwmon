@@ -28,6 +28,7 @@
 #include <linux/dmi.h>
 #include <linux/hwmon.h>
 #include <linux/io.h>
+#include <linux/ioport.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 
@@ -240,6 +241,16 @@ static int lps_ec_probe(struct platform_device *pdev)
 	u8 test;
 	int ret;
 
+	if (!devm_request_region(dev, EC_DATA_PORT, 1, DRIVER_NAME))
+		return dev_err_probe(dev, -EBUSY,
+				     "Failed to request EC data port 0x%x\n",
+				     EC_DATA_PORT);
+
+	if (!devm_request_region(dev, EC_CMD_PORT, 1, DRIVER_NAME))
+		return dev_err_probe(dev, -EBUSY,
+				     "Failed to request EC cmd port 0x%x\n",
+				     EC_CMD_PORT);
+
 	/* Sanity check: verify EC is responsive */
 	ret = ec_read_reg(EC_REG_FAN_DUTY, &test);
 	if (ret)
@@ -306,7 +317,7 @@ static int __init lps_ec_init(void)
 		return ret;
 
 	lps_ec_pdev = platform_device_register_simple(DRIVER_NAME, -1,
-						       NULL, 0);
+						      NULL, 0);
 	if (IS_ERR(lps_ec_pdev)) {
 		platform_driver_unregister(&lps_ec_driver);
 		return PTR_ERR(lps_ec_pdev);
