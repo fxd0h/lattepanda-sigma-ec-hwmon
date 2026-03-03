@@ -122,13 +122,22 @@ static int ec_read_reg(u8 reg, u8 *val)
 	return 0;
 }
 
-/* Read a 16-bit big-endian value from two consecutive EC registers. */
+/*
+ * Read a 16-bit big-endian value from two consecutive EC registers.
+ *
+ * The EC may update the register pair between reading the high and low
+ * bytes, which could produce a corrupted value if the high byte rolls
+ * over (e.g., 0x0100 -> 0x00FF read as 0x01FF). Guard against this by
+ * re-reading the high byte after reading the low byte. If the high byte
+ * changed, re-read the low byte to get a consistent pair.
+ * See also lm90_read16() which uses the same approach.
+ */
 static int ec_read_reg16(u8 reg_hi, u8 reg_lo, u16 *val)
 {
 	int ret;
-	u8 hi, lo;
+	u8 oldh, newh, lo;
 
-	ret = ec_read_reg(reg_hi, &hi);
+	ret = ec_read_reg(reg_hi, &oldh);
 	if (ret)
 		return ret;
 
@@ -136,7 +145,17 @@ static int ec_read_reg16(u8 reg_hi, u8 reg_lo, u16 *val)
 	if (ret)
 		return ret;
 
-	*val = ((u16)hi << 8) | lo;
+	ret = ec_read_reg(reg_hi, &newh);
+	if (ret)
+		return ret;
+
+	if (oldh != newh) {
+		ret = ec_read_reg(reg_lo, &lo);
+		if (ret)
+			return ret;
+	}
+
+	*val = ((u16)newh << 8) | lo;
 	return 0;
 }
 
